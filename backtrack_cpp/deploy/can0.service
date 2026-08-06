@@ -1,0 +1,19 @@
+# Bring can0 up at boot (Waveshare RS485 CAN HAT / MCP2515, VESC bus 500k).
+# restart-ms lets the controller recover from bus-off (e.g. wiring glitch)
+# without a reboot.
+#
+# Install: sudo cp can0.service /etc/systemd/system/ && sudo systemctl enable can0
+
+[Unit]
+Description=SocketCAN can0 @ 500 kbit/s for the VESC track drives
+After=sys-subsystem-net-devices-can0.device
+BindsTo=sys-subsystem-net-devices-can0.device
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/ip link set can0 up type can bitrate 500000 restart-ms 100
+ExecStop=/sbin/ip link set can0 down
+
+[Install]
+WantedBy=multi-user.target

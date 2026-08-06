@@ -1,0 +1,5 @@
+build/
+*.o
+*.png
+data/*.csv
+data/*.svg

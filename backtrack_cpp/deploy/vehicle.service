@@ -1,0 +1,32 @@
+# systemd unit for the on-vehicle backtrack daemon (run_vehicle) on the CM4.
+#
+# Install: sudo cp vehicle.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable --now vehicle
+# Logs:    journalctl -u vehicle -f
+#
+# Restart=always satisfies the TZ watchdog NFR: if the daemon dies the motors
+# stop by themselves (VESC app timeout), and control returns within seconds.
+# The 15 s gyro calibration re-runs on every restart -- the vehicle must be
+# stationary then, which it is: without the daemon nothing commands the tracks.
+
+[Unit]
+Description=UGV Link-Loss Backtrack vehicle daemon
+After=can0.service
+Wants=can0.service
+
+[Service]
+Type=simple
+User=pi
+SupplementaryGroups=i2c dialout
+# Let run_vehicle take SCHED_FIFO + mlockall (it degrades gracefully without,
+# but RT scheduling keeps the 50 Hz dead-reckoning tick honest).
+LimitRTPRIO=32
+LimitMEMLOCK=infinity
+AmbientCapabilities=CAP_SYS_NICE
+WorkingDirectory=/home/pi/backtrack_cpp
+ExecStart=/home/pi/backtrack_cpp/build/run_vehicle --log-level info --log-file /home/pi/backtrack_cpp/data/vehicle.log
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

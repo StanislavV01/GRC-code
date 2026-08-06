@@ -1,0 +1,26 @@
+# systemd unit for the UGV Link-Loss Backtrack service on the CM4.
+#
+# Install: sudo cp backtrack.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable --now backtrack
+# Logs:    journalctl -u backtrack -f         (stderr is captured by journald)
+#
+# NOTE: run_demo is a ONE-SHOT sandbox (runs once and exits). With Restart=always
+# below it would relaunch in a loop -- fine for smoke-testing on the bench, but
+# replace ExecStart with the long-running daemon once the MAVLink/CAN drivers
+# land. Restart=always then satisfies the TZ watchdog NFR (auto-restart <=10s,
+# a companion crash must not block manual control via Pixhawk).
+
+[Unit]
+Description=UGV Link-Loss Backtrack companion
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/backtrack_cpp
+ExecStart=/home/pi/backtrack_cpp/build/run_demo --log-level info --log-file /home/pi/backtrack_cpp/data/backtrack.log
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
