@@ -36,6 +36,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     src/hal/mpu9250_i2c.cpp
     src/hal/vesc_socketcan.cpp
     src/hal/rs485_link.cpp
+    src/hal/dronecan_esc.cpp
   )
   target_link_libraries(backtrack_hal PRIVATE backtrack)  # log.hpp
 endif()
@@ -51,6 +52,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
   # Passive DroneCAN bus recon for the first live hookup.
   add_executable(can_sniff apps/can_sniff.cpp)
+
+  # Listen-only dry run of the backtrack brain against the live bus.
+  add_executable(run_observe apps/run_observe.cpp)
+  target_link_libraries(run_observe PRIVATE backtrack backtrack_hal)
 endif()
 
 # Bench operator console (plain termios -- builds on Linux and macOS).

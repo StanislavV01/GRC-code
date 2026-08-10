@@ -11,7 +11,8 @@ mkdir -p build data
 LIB_SRCS="src/kinematics.cpp src/sensors.cpp src/estimator.cpp \
 src/controller.cpp src/route.cpp src/simulation.cpp src/logio.cpp src/log.cpp"
 HAL_CODEC_SRCS="src/hal/frame_codec.cpp"
-HAL_LINUX_SRCS="src/hal/mpu9250_i2c.cpp src/hal/vesc_socketcan.cpp src/hal/rs485_link.cpp"
+HAL_LINUX_SRCS="src/hal/mpu9250_i2c.cpp src/hal/vesc_socketcan.cpp \
+src/hal/rs485_link.cpp src/hal/dronecan_esc.cpp"
 
 echo "[build] run_demo"
 # shellcheck disable=SC2086
@@ -37,7 +38,11 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     -o build/run_vehicle
   echo "[build] can_sniff"
   $CXX $FLAGS apps/can_sniff.cpp -o build/can_sniff
-  echo "[done] build/run_demo  build/unit_tests  build/op_console  build/run_vehicle  build/can_sniff"
+  echo "[build] run_observe"
+  # shellcheck disable=SC2086
+  $CXX $FLAGS apps/run_observe.cpp $LIB_SRCS $HAL_CODEC_SRCS $HAL_LINUX_SRCS \
+    -o build/run_observe
+  echo "[done] build/run_demo  build/unit_tests  build/op_console  build/run_vehicle  build/can_sniff  build/run_observe"
 else
   echo "[skip] run_vehicle (Linux-only device drivers; build it on the Pi)"
   echo "[done] build/run_demo  build/unit_tests  build/op_console"
