@@ -1,0 +1,19 @@
+[Unit]
+# Bring up can0 in LISTEN-ONLY mode for passive DroneCAN sniffing/logging.
+# The MCP2515 (Waveshare RS485 CAN HAT) enumerates as can0 once the overlay is
+# active (see HARDWARE_BRINGUP.md / config.txt [all] block). LISTEN-ONLY means
+# the controller never ACKs, injects, or disturbs the bus -- safe on a live
+# vehicle. Bus confirmed 1 Mbit (DroneCAN). Do NOT confuse with the transmitting
+# can0.service (500k) -- that one stays disabled.
+Description=can0 LISTEN-ONLY @1Mbit for DroneCAN sniffing (backtrack)
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/ip link set can0 up type can bitrate 1000000 listen-only on
+ExecStartPost=/sbin/ip link set can0 txqueuelen 1000
+ExecStop=/sbin/ip link set can0 down
+
+[Install]
+WantedBy=multi-user.target
