@@ -38,6 +38,12 @@ namespace {
 volatile std::sig_atomic_t g_stop = 0;
 void handle_signal(int) { g_stop = 1; }
 
+// Optional per-frame esc.Status CSV sink (--esc-csv): every decoded status row
+// is written unthrottled so low-rate wheel ESCs are never dropped -- essential
+// for correlating operator stick commands to which node is which wheel.
+std::FILE* g_csv = nullptr;
+double g_csv_t0 = 0.0;
+
 double monotonic_s() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -124,11 +130,20 @@ struct Reassembly {
 // uavcan.equipment.esc.Status (1034), ~14 payload bytes = 2 CAN frames.
 // Layout: error_count u32 | voltage f16 | current f16 | temperature f16 |
 //         rpm int18 | power_rating_pct u7 | esc_index u5
-void print_esc_status(uint8_t src, const uint8_t* p, std::size_t n) {
-    if (n < 13) return;
-    uint32_t err;
+struct EscStatus {
+    bool ok{false};
+    int32_t rpm{0};
+    float voltage{0.f};
+    float current{0.f};
+    uint32_t err{0};
+    int esc_index{0};
+};
+
+EscStatus decode_esc_status(const uint8_t* p, std::size_t n) {
+    EscStatus s;
+    if (n < 13) return s;
     uint16_t v16, c16;
-    std::memcpy(&err, p, 4);
+    std::memcpy(&s.err, p, 4);
     std::memcpy(&v16, p + 4, 2);
     std::memcpy(&c16, p + 6, 2);
     // rpm: int18, packed MSB-first starting at byte 10
@@ -136,11 +151,18 @@ void print_esc_status(uint8_t src, const uint8_t* p, std::size_t n) {
                   | (static_cast<int32_t>(p[11]) << 2)
                   | (p[12] >> 6);
     if (rpm & 0x20000) rpm -= 0x40000;  // sign-extend 18 bits
-    const int esc_index = (n > 13 ? p[13] : p[12]) & 0x1F;
+    s.rpm = rpm;
+    s.voltage = half_to_float(v16);
+    s.current = half_to_float(c16);
+    s.esc_index = (n > 13 ? p[13] : p[12]) & 0x1F;
+    s.ok = true;
+    return s;
+}
+
+void print_esc_status_line(uint8_t src, const EscStatus& s) {
     std::printf("  esc.Status node %-3u  rpm %-7d  %5.1f V  %5.1f A  "
                 "err %" PRIu32 "  (idx~%d)\n",
-                src, rpm, half_to_float(v16), half_to_float(c16), err,
-                esc_index);
+                src, s.rpm, s.voltage, s.current, s.err, s.esc_index);
 }
 
 struct Key {
@@ -159,12 +181,16 @@ struct Key {
 int main(int argc, char** argv) {
     std::string iface = "can0";
     double seconds = 0.0;
+    std::string csv_path;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--iface" && i + 1 < argc) iface = argv[++i];
         else if (arg == "--seconds" && i + 1 < argc) seconds = std::atof(argv[++i]);
+        else if (arg == "--esc-csv" && i + 1 < argc) csv_path = argv[++i];
         else {
-            std::fprintf(stderr, "usage: can_sniff [--iface can0] [--seconds N]\n");
+            std::fprintf(stderr,
+                         "usage: can_sniff [--iface can0] [--seconds N] "
+                         "[--esc-csv PATH]\n");
             return 1;
         }
     }
@@ -193,6 +219,13 @@ int main(int argc, char** argv) {
 
     std::signal(SIGINT, handle_signal);
     std::signal(SIGTERM, handle_signal);
+    if (!csv_path.empty()) {
+        g_csv = std::fopen(csv_path.c_str(), "w");
+        if (!g_csv) { std::perror("fopen esc-csv"); return 1; }
+        std::fprintf(g_csv, "t,node,rpm,voltage,current,err,esc_index\n");
+        g_csv_t0 = monotonic_s();
+        std::printf("esc.Status -> %s\n", csv_path.c_str());
+    }
     std::printf("sniffing %s (passive)... Ctrl+C to stop\n\n", iface.c_str());
 
     std::map<Key, uint64_t> counts;
@@ -226,12 +259,23 @@ int main(int argc, char** argv) {
                 }
                 if (eof && r.active) {
                     r.active = false;
-                    const double now = monotonic_s();
-                    if (now - last_esc_print > 0.5) {  // не заливати консоль
-                        last_esc_print = now;
-                        if (sof) print_esc_status(d.src, r.buf, r.len);
-                        else if (r.len > 2)  // multi-frame: strip transfer CRC
-                            print_esc_status(d.src, r.buf + 2, r.len - 2);
+                    const uint8_t* pp = nullptr;
+                    std::size_t nn = 0;
+                    if (sof) { pp = r.buf; nn = r.len; }  // single-frame transfer
+                    else if (r.len > 2) { pp = r.buf + 2; nn = r.len - 2; }  // CRC
+                    if (pp) {
+                        const EscStatus s = decode_esc_status(pp, nn);
+                        if (s.ok && g_csv) {  // unthrottled: never drop a wheel row
+                            std::fprintf(
+                                g_csv, "%.4f,%u,%d,%.3f,%.3f,%" PRIu32 ",%d\n",
+                                monotonic_s() - g_csv_t0, d.src, s.rpm, s.voltage,
+                                s.current, s.err, s.esc_index);
+                        }
+                        const double now = monotonic_s();
+                        if (s.ok && now - last_esc_print > 0.5) {  // console throttle
+                            last_esc_print = now;
+                            print_esc_status_line(d.src, s);
+                        }
                     }
                 }
             }
@@ -258,8 +302,10 @@ int main(int argc, char** argv) {
             std_frames = 0;
             total = 0;
             last_report = now;
+            if (g_csv) std::fflush(g_csv);  // survive a yanked-cable end
         }
     }
+    if (g_csv) { std::fflush(g_csv); std::fclose(g_csv); }
     ::close(fd);
     return 0;
 }

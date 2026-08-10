@@ -13,6 +13,8 @@ DUR=${1:-120}
 HERE="$(cd "$(dirname "$0")" && pwd)"
 D="$HERE/field_logs/$(date +%F)"
 mkdir -p "$D"
-F="$D/sniff_$(date +%H%M%S)_${DUR}s.log"
-echo "logging ${DUR}s (listen-only) -> $F"
-"$HERE/build/can_sniff" --seconds "$DUR" | tee "$F"
+STAMP=$(date +%H%M%S)
+F="$D/sniff_${STAMP}_${DUR}s.log"
+CSV="$D/esc_${STAMP}_${DUR}s.csv"
+echo "logging ${DUR}s (listen-only) -> $F  (+ per-node esc CSV -> $CSV)"
+"$HERE/build/can_sniff" --seconds "$DUR" --esc-csv "$CSV" | tee "$F"
