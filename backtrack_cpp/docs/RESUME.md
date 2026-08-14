@@ -34,15 +34,17 @@ failsafe=Hold(5с), **DroneCAN serial-тунель вимкнено (`CAN_D1_UC_
 **Мозок backtrack авто-стартує** listen-only: `deploy/backtrack-observe.service`
 (run_observe). У CAN нічого не шле.
 
-**Рішення команди — як backtrack керуватиме:**
-- **A** CM4 → MAVLink-over-CAN тунель → GUIDED (наш мозок; треба увімкнути тунель
-  у ArduPilot + тунель-клієнт на CM4). ← рекомендовано для GNSS-denied.
-- **B** рідний ArduPilot Rover SmartRTL (нуль коду; залежить від оцінки позиції).
-- **C** Lua на автопілоті.
+**ОБРАНО варіант A** (CM4 → MAVLink-over-CAN тунель → GUIDED). Повний план:
+`docs/COMMAND_CHANNEL_PATH_A.md`.
 
-Після вибору: (1) параметри ArduPilot міняє КОМАНДА (я лише читаю); (2) перший
-рух — контрольований тест на стенді (крихітний газ, ліміти, рука на живленні),
-лише з явним дозволом слати в CAN.
+Найближчий крок — **КОМАНДА** вмикає в ArduPilot DroneCAN serial-тунель
+(`CAN_D1_UC_SER_EN=1` + MAVLink SERIALx у тунель). Критерій: у mavlink2rest
+(`:6040`) з'явиться HEARTBEAT від sysid 1 (автопілот). Поки його немає — я
+transmit-код не пишу (нема як перевірити наживо).
+
+Після появи HEARTBEAT: я пишу `Mavlink2RestSink` (GUIDED velocity через
+mavlink2rest) + командний режим, ганяю dry-run, потім контрольований перший рух на
+стенді (крихітний газ, ліміти, рука на живленні) — лише з явним дозволом.
 
 ## Дані сесії
 
