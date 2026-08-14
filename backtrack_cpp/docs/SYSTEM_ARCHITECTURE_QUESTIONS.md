@@ -56,6 +56,47 @@ Pixhawk 6C Pro керує 2× FSESC 75450 **напряму по CAN** (DroneCAN)
     failsafe, skid-steer. З цього сплануємо командний канал. Поки експорту немає —
     реального руху не робимо.
 
+## Знахідки з pixhawk-6c-pro.params (2026-08-10)
+
+Файл параметрів у репо: `pixhawk-6c-pro/pixhawk-6c-pro.params` (+ ArduPilot Lua
+у `pixhawk-6c-pro/APM/scripts/`).
+
+- **ArduPilot Rover.** Автопілот = DroneCAN **node 10** (`CAN_D1_UC_NODE=10`).
+  **CAN1 @ 1 Мбіт** DroneCAN (`CAN_P1_DRIVER=1`, `CAN_P1_BITRATE=1000000`,
+  `CAN_D1_PROTOCOL=1`); **CAN2 вимкнено** (`CAN_P2_DRIVER=0`). ESC по DroneCAN
+  (`CAN_D1_UC_ESC_BM=3`).
+- **MAVLink у автопілот вже є:** SERIAL1 і SERIAL2 = MAVLink2 (`SERIALx_PROTOCOL=2`)
+  — це зайняті TELEM (джойстик/модем). BlueOS/CM4 туди НЕ під'єднаний (mavlink2rest
+  порожній). SERIAL7 = RCIN (протокол 23). RC увімкнено (`RC_PROTOCOLS=1`).
+- **Скриптинг увімкнено** (`SCR_ENABLE=1`). Lua `tst.lua` приймає MAVLink
+  `MANUAL_CONTROL`/`HEARTBEAT` і мапить кнопки на сервоприводи (ніж/шарнір/гак/
+  лебідка) + engine-enable; має safety-таймаут 2 с (усе в нейтраль).
+- **Failsafe:** GCS-loss 5 с (`FS_GCS_ENABLE=1`, `FS_GCS_TIMEOUT=5`) → **Hold**
+  (`FS_ACTION=2`). Тобто ЗАРАЗ при втраті лінка борт просто **зупиняється**, не
+  вертається. RC/throttle failsafe теж увімкнено.
+- **Ключ до командного каналу:** `CAN_D1_UC_SER_EN=0` — DroneCAN **serial-тунель
+  ВИМКНЕНО**. Це і є механізм «MAVLink/serial поверх CAN». Увімкнення (=1) +
+  прив'язка SERIALx до тунелю + CM4 як інший кінець → MAVLink CM4↔автопілот по
+  наявному CAN1.
+
+## Рішення: як backtrack керуватиме (обрати A/B/C)
+
+- **A. CM4 → MAVLink-over-CAN тунель → GUIDED.** Увімкнути `CAN_D1_UC_SER_EN` +
+  serial-тунель, CM4 шле автопілоту швидкість (GUIDED). Автопілот — єдиний майстер
+  моторів. Плюс: наш dead-reckoning-мозок керує, повний контроль логіки. Мінус:
+  треба тунель-клієнт на CM4 + param-зміни; складніше.
+- **B. Рідний ArduPilot Rover SmartRTL.** Автопілот сам пише трек і вертається
+  (змінити `FS_ACTION` на SmartRTL). Плюс: нуль нового коду, перевірена функція.
+  Мінус: залежить від оцінки позиції автопілота в GNSS-глушняку (чи довіряємо
+  wheel-odometry+IMU dead reckoning ArduPilot); менше контролю; наш CM4-мозок стає
+  резервом, а не основним.
+- **C. Lua на автопілоті.** Backtrack як скрипт на борту (як уже роблять аукс-Lua).
+  Плюс: без нового заліза/каналу. Мінус: Lua обмежений, писати dead-reckoning на
+  ньому важко; дублює наш C++ мозок.
+
+Рекомендація для GNSS-denied незалежності — **A** (наш мозок + автопілот як
+безпечний актуатор). Але це рішення команди; від нього залежить, куди йде код далі.
+
 ## Блокери (без цього не пишемо код)
 
 1. **Прошивка політника: ArduPilot Rover чи PX4? Версія?**

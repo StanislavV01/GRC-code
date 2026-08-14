@@ -1,0 +1,25 @@
+[Unit]
+# Auto-start the backtrack BRAIN at boot in LISTEN-ONLY mode. run_observe reads
+# odometry from DroneCAN esc.Status (node 50, idx0=left/idx2=right), runs the
+# dead-reckoning estimator + backtrack controller, and LOGS what it would command
+# -- it NEVER writes to the CAN bus (the drive HAL's set_erpm is a no-op). Safe to
+# leave running on a live vehicle.
+#
+# Trigger a (dry-run) backtrack:  systemctl kill -s SIGUSR1 backtrack-observe
+# Regain the link:                systemctl kill -s SIGUSR2 backtrack-observe
+#
+# When a real command channel exists (ArduPilot DroneCAN serial tunnel enabled +
+# explicit authorization to transmit), swap ExecStart for the commanding variant.
+Description=Backtrack brain (LISTEN-ONLY dry run) — odometry + return planning
+After=can0-listen.service
+Wants=can0-listen.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/pi/backtrack_cpp
+ExecStart=/home/pi/backtrack_cpp/build/run_observe --outdir /home/pi/backtrack_cpp/field_logs/auto
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

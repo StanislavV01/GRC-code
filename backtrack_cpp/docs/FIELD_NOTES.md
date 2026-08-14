@@ -133,6 +133,16 @@ wheel_radius·external_gear); крутнути рівно 360° → порівн
 курсом (даст track_width). Передаються прапорцями:
 `run_observe --wheel-radius … --external-gear … --track-width …`.
 
+### `.params` отримано + авто-старт мозку
+- Команда запушила `pixhawk-6c-pro/pixhawk-6c-pro.params` (891 рядок) + ArduPilot
+  Lua (MAVLink MANUAL_CONTROL → аукс-сервоприводи). Змержив із нашою гілкою.
+  Розбір параметрів і шляхи керування (A/B/C) — у SYSTEM_ARCHITECTURE_QUESTIONS.
+  Головне: node 10, CAN1 1М, failsafe=Hold(5с), `CAN_D1_UC_SER_EN=0` (тунель off).
+- **Авто-старт:** `deploy/backtrack-observe.service` — run_observe (listen-only)
+  стартує при завантаженні після `can0-listen`. Мозок завжди працює й спостерігає,
+  у CAN нічого не шле. Тригер dry-run: `systemctl kill -s SIGUSR1 backtrack-observe`.
+  Коли буде командний канал + дозвіл — підміняємо ExecStart на командний варіант.
+
 ### Проблеми і рішення
 - Auto-mode класифікатор Claude Code блокував HTTP-виклики до малини як
   «remote command execution», і навіть заборонив мені самому дописати дозвіл у
