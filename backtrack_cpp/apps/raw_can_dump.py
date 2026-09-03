@@ -33,6 +33,78 @@ def decode_dtype(ext):
     return service, tid, src
 
 
+def half_to_float(h):
+    import struct as _s
+    return _s.unpack("<e", _s.pack("<H", h))[0]
+
+
+def decode_actuator_array(buf):
+    # uavcan.equipment.actuator.ArrayCommand: dynamic array of
+    #   {actuator_id:u8, command_type:u8, command_value:float16}
+    # After transfer reassembly the leading 2-byte CRC is already stripped.
+    out = []
+    n = len(buf) // 4
+    for k in range(n):
+        aid = buf[4 * k]
+        ctype = buf[4 * k + 1]
+        val = half_to_float(buf[4 * k + 2] | (buf[4 * k + 3] << 8))
+        out.append((aid, ctype, val))
+    return out
+
+
+def decode_1010_mode(iface, seconds):
+    # Reassemble DroneCAN transfers of type 1010 from node 10 and print decoded
+    # actuator commands at ~3 Hz so a driven maneuver reveals the mapping.
+    s = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
+    s.bind((iface,))
+    s.settimeout(1.0)
+    reasm = {}  # src -> dict(buf,len,active,tid,tog)
+    t0 = time.monotonic()
+    last_print = 0.0
+    latest = None
+    while time.monotonic() - t0 < seconds:
+        try:
+            frame = s.recv(16)
+        except socket.timeout:
+            continue
+        can_id, dlc, data = struct.unpack(FRAME_FMT, frame)
+        if not (can_id & CAN_EFF_FLAG):
+            continue
+        ext = can_id & CAN_EFF_MASK
+        service, tid_type, src = decode_dtype(ext)
+        if service or tid_type != 1010 or src != 10:
+            continue
+        payload = data[:dlc]
+        if dlc < 1:
+            continue
+        tail = payload[-1]
+        sot = tail & 0x80
+        eot = tail & 0x40
+        tog = (tail >> 5) & 1
+        transfer = tail & 0x1F
+        body = payload[:-1]
+        r = reasm.get(src)
+        done = None
+        if sot:
+            reasm[src] = {"buf": bytearray(body), "tid": transfer, "tog": 1}
+            if eot:
+                done = bytes(reasm[src]["buf"]); reasm.pop(src, None)
+        elif r is not None and transfer == r["tid"] and tog == r["tog"]:
+            r["buf"] += body; r["tog"] ^= 1
+            if eot:
+                done = bytes(r["buf"]); reasm.pop(src, None)
+        else:
+            reasm.pop(src, None)
+        if done is not None and len(done) >= 2:
+            latest = decode_actuator_array(done[2:])  # strip transfer CRC
+        now = time.monotonic() - t0
+        if latest is not None and now - last_print > 0.33:
+            last_print = now
+            cells = "  ".join(f"id{a}:{v:+.3f}" for (a, ct, v) in latest)
+            print(f"t={now:6.2f}  {cells}")
+    return
+
+
 def main():
     iface = "can0"
     seconds = 5.0
@@ -49,6 +121,8 @@ def main():
             filt = int(a[i + 1]); i += 2
         elif a[i] == "--only-11bit":
             only11 = True; i += 1
+        elif a[i] == "--decode-1010":
+            decode_1010_mode(iface, seconds); return
         else:
             i += 1
 
